@@ -24,33 +24,25 @@ class SetupMarsSDS:
 	The time (in Sol units) is converted to UTCDateTime, so we can
 	use SDSChunk to access the data.
 	"""
-	def __init__(self, loc: str, cha: str, SDSpath: str, solstart: int,
-					solend: int, verbose=False):
+	def __init__(self, SDSpath: str, verbose=False):
 
 		if not os.path.exists(SDSpath):
 			log(f"SDS path {SDSpath} does not exist")
 
-		if solstart > solend or solstart < 0 or solend < 0:
-			log(f"Wrong Sol: {solstart} -> {solend}")
-
 		self.net      = 'XB'
 		self.sta      = 'ELYSE'
-		self.loc      = loc
-		self.cha      = cha
+		# self.loc      = loc
+		# self.cha      = cha
 		self.SDSpath  = SDSpath
-		self.solstart = solstart
-		self.solend   = solend
+		# self.solstart = solstart
+		# self.solend   = solend
 		self.verbose  = verbose
 
 	def __str__(self):
-		code = f"{self.net}.{self.sta}.{self.loc}.{self.cha}"
-		t0, _ = sol_span_in_utc(self.solstart)
-		_, t1 = sol_span_in_utc(self.solend)
+		return f"SetupMarsSDS:\n  Station Code: {self.net}.{self.sta}\n" +\
+			   f"  SDS Path: {self.SDSpath}"
 
-		return f"SetupMarsSDS:\n  Code: {code}\n  Start: Sol {self.solstart}" +\
-			   f" = {t0}\n  End: Sol {self.solend} = {t1}"
-
-	def _make_dir(self, year: int, cha: str, data_type='D'):
+	def _make_dir(self, year, cha, data_type='D'):
 		"""
 		Creates the CHAN.TYPE directory in SDS if it does not exist
 		"""
@@ -66,7 +58,7 @@ class SetupMarsSDS:
 				log(f"DIR: creating {subdir}", level=0, verbose=self.verbose)
 				os.mkdir(subdir)
 
-	def _get_cha(self, t0, t1):
+	def _get_cha(self, loc, cha, t0, t1):
 		"""
 		Stores the location and channel code for all active stations
 		in t0 <= t <= t1
@@ -74,8 +66,8 @@ class SetupMarsSDS:
 		loc_cha_running = []
 
 		inv = CLIENT.get_stations(network=self.net, station=self.sta,
-							location=self.loc.replace("?", "*"),
-							channel=self.cha.replace("?", "*"),
+							location=loc.replace("?", "*"),
+							channel=cha.replace("?", "*"),
 							starttime=t0, endtime=t1, level='channel')
 
 		for ch_info in inv[0][0].channels:
@@ -96,16 +88,19 @@ class SetupMarsSDS:
 		return os.path.join(self.SDSpath, f"{year:04d}", self.net, self.sta,
 							f"{cha}.{data_type}", filename)
 
-	def download(self, replace=False):
+	def download(self, location, channel, solstart, solend, replace=False):
 		"""
 		Download and store data
 
 		replace: if it is True, will replace existing files with ney ones
 		"""
 
+		if solstart > solend or solstart < 0 or solend < 0:
+			log(f"Wrong Sol: {solstart} -> {solend}")
+
 		# Starttime and Endtime converted from Sol to UTC
-		time0, _ = sol_span_in_utc(self.solstart)
-		_, time1 = sol_span_in_utc(self.solend)
+		time0, _ = sol_span_in_utc(solstart)
+		_, time1 = sol_span_in_utc(solend)
 
 
 		# print(f"Years: {time0.year} - {time1.year}")
@@ -123,7 +118,8 @@ class SetupMarsSDS:
 				julday_t0, julday_t1 = julday_in_utc(year, julday)
 
 				# Active channels
-				loc_cha_running = self._get_cha(julday_t0, julday_t1)
+				loc_cha_running = self._get_cha(location, channel, julday_t0,
+												julday_t1)
 
 				for lc_id in loc_cha_running:
 					loc, cha = lc_id.split('.')
@@ -172,8 +168,8 @@ class SetupMarsSDS:
 
 
 if __name__ == '__main__':
-	setup = SetupMarsSDS(loc='02', cha='BH*', SDSpath='/home/rafael/mars/SDS/',
-						solstart=388, solend=391, verbose=True)
+	setup = SetupMarsSDS(SDSpath='/home/rafael/mars/SDS/', verbose=True)
 	print(setup)
-	setup.download(replace=True)
+	setup.download(location='02', channel='BH*', solstart=388, solend=391,
+						replace=True)
 
