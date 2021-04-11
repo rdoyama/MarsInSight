@@ -2,7 +2,7 @@
 
 Classes for MarsSDS assembly and data retrieval
 
-SetupMarsSDS: Responsible for the download and creation of the
+MarsSDS: Responsible for the download and creation of the
 	file structure. By default, data is acquired from the station
 	XB.ELYSE.
 
@@ -36,7 +36,7 @@ import sys
 CLIENT = Client("IRIS")
 
 
-class SetupMarsSDS(object):
+class MarsSDS(object):
 	"""
 	This class is responsible for the creation of the SDS as well as
 	the download of the data in a given interval (in Sols)
@@ -125,6 +125,9 @@ class SetupMarsSDS(object):
 		time0, _ = sol_span_in_utc(solstart)
 		_, time1 = sol_span_in_utc(solend)
 
+		# Fix continuity
+		ST = Stream()
+
 		for year in range(time0.year, time1.year + 1, 1):
 
 			start = max(UTCDateTime(f"{year}-01-01"), time0)
@@ -154,10 +157,20 @@ class SetupMarsSDS(object):
 						
 					else:
 						try:
+
 							st = CLIENT.get_waveforms(network=self.net,
 											station=self.sta, location=loc,
-											channel=cha, starttime=julday_t0,
-											endtime=julday_t1)
+											channel=cha, starttime=julday_t0-10,
+											endtime=julday_t1+10)
+							ST.extend([st[0]]).merge(method=1)
+							ST.trim(julday_t0-10, julday_t1+10)
+
+							st = ST.slice(julday_t0, julday_t1,
+								nearest_sample=False).select(location=loc,
+								channel=cha)
+
+							if len(st) == 0:
+								continue
 
 						except header.FDSNNoDataException as E:
 							log(f"{E}", level=1, verbose=self.verbose)
@@ -172,7 +185,11 @@ class SetupMarsSDS(object):
 						# SDS Creation/Update
 						self._make_dir(year, cha)
 
-						st.write(filename, format="MSEED")
+						if any(np.ma.is_masked(tr.data) for tr in st):
+							print("MASKED")
+						# 	for i in range(len(st)):
+						# 		st[i].data = st[i].data.filled()
+						st.split().write(filename, format="MSEED")
 
 
 class chunk(object):
@@ -431,18 +448,59 @@ class sdschunk(chunk):
 		return True
 
 
+class DownloadFull:
+	def __init__(self, N, S, L, C, output_dir):
+		self.N = N
+		self.S = S
+		self.L = L
+		self.C = C
+		if not os.path.exists(output_dir):
+			log(f"Output directory does not exist", level=2)
+		else:
+			self.output_dir = output_dir
+
+	def download(self, start, end):
+		"""
+		start and end in Sols
+		"""
+
+		t0, _ = sol_span_in_utc(start)
+		_, t1 = sol_span_in_utc(end)
+
+		t0, _ = julday_in_utc(t0.year, t0.julday)
+		_, t1 = julday_in_utc(t1.year, t1.julday)
+
+		print(t0, t1)
+
+		st = CLIENT.get_waveforms(network=self.N, station=self.S, location=self.L,
+						channel=self.C, starttime=t0, endtime=t1)
+
+		fname = f"{self.N}-{self.S}-{self.L}-{self.C}-{start}-{end}"
+		st.write(os.path.join(self.output_dir, fname), format="MSEED")
+
+
+
 if __name__ == "__main__":
 
 	## Testing SetupMarsSDS
-	setup = SetupMarsSDS(SDSpath="/home/rafael/mars/SDS/", verbose=True)
-	print(setup)
-	setup.download(location="02", channel="BH*", solstart=244, solend=245,
-						replace=False)
+	# setup = MarsSDS(SDSpath="/home/rafael/mars/SDS/", verbose=True)
+	# print(setup)
+	# setup.download(location="02", channel="BH*", solstart=197, solend=300,
+	# 					replace=True)
 
-	## Testing SDSchunk
-	# a = sdschunk("/home/rafael/mars/SDS/", "XB", "ELYSE", "02", "BHU")
+	# Testing SDSchunk
+	# a = sdschunk("/home/rafael/mars/SDS/", "XB", "ELYSE", "02", "BHV")
 	# streams = []
-	# a.get(180, 187, streams, withgaps=True, incomplete=True)
+	# t0 = UTCDateTime("2019-05-22T23:00:00")
+	# a.get(t0, t0 + 4*86400, streams, withgaps=True, incomplete=True)
 
+	# print(len(streams))
+	# import pickle
 	# for st in streams:
+	# 	print(st)
 	# 	st.plot()
+	# 	with open("/home/rafael/Desktop/stream", 'wb') as f:
+	# 		pickle.dump(st, f)
+
+	data = DownloadFull("XB", "ELYSE", "02", "BHU", "/home/rafael/mars/")
+	data.download(100, 110)
